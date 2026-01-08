@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Search</title>
+    <style>
+        /* Terminal / Plaintext Style */
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: Consolas, "Courier New", monospace;
+            white-space: pre-wrap;
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        a { color: #58a6ff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .loading { color: #f0883e; }
+        .error { color: #ff7b72; }
+    </style>
+</head>
+<body><div id="display"></div>
+
+<script>
+    const display = document.getElementById('display');
+
+    async function runSearch() {
+        // 1. Get query from URL (e.g. /search/python)
+        const path = window.location.pathname;
+        if (!path.includes('/search/')) {
+            display.innerText = "Usage: Go to https://your-url.github.io/search/your-query";
+            return;
+        }
+
+        let query = decodeURI(path.split('/search/')[1]);
+        if(query.endsWith('/')) query = query.slice(0, -1); // Remove trailing slash
+        
+        // 2. Show Loading
+        display.innerHTML = `<span class="loading">CONNECTING TO DUCKDUCKGO VIA PROXY...</span>\nSearching for: "${query}"\n\n`;
+
+        // 3. The Hack: Use a CORS Proxy to fetch DuckDuckGo's HTML version
+        // We use html.duckduckgo.com which is the "lite" version (easier to scrape)
+        const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(ddgUrl)}`;
+
+        try {
+            const response = await fetch(proxyUrl);
+            const data = await response.json(); // AllOrigins returns JSON with a .contents string
+            
+            if (!data.contents) throw new Error("Proxy returned empty data.");
+
+            // 4. Parse the HTML string into a real DOM object so we can read it
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(data.contents, "text/html");
+
+            // 5. Extract results using DuckDuckGo's CSS classes
+            // Note: These class names (.result__title, etc) come from DDG's HTML code
+            const results = doc.querySelectorAll('.result');
+            
+            let output = `RESULTS FOR: ${query}\n====================================\n\n`;
+
+            if (results.length === 0) {
+                output += "No results found (or DuckDuckGo blocked the proxy).";
+            }
+
+            results.forEach((res, index) => {
+                // Try to find the title link
+                const titleNode = res.querySelector('.result__a');
+                const snippetNode = res.querySelector('.result__snippet');
+
+                if (titleNode && snippetNode) {
+                    const title = titleNode.innerText.trim();
+                    const link = titleNode.getAttribute('href');
+                    const snippet = snippetNode.innerText.trim();
+
+                    // Formatting the output
+                    output += `[${index + 1}] ${title}\n`;
+                    output += `    ${snippet}\n`;
+                    output += `    -> ${link}\n\n`;
+                }
+            });
+
+            display.innerText = output;
+
+        } catch (err) {
+            display.innerHTML += `<span class="error">ERROR: ${err.message}</span>\n\nPossible causes:\n1. The free proxy is overloaded.\n2. DuckDuckGo blocked the proxy IP.\n3. Your internet blocked the proxy.`;
+        }
+    }
+
+    runSearch();
+</script>
+</body>
+</html>
